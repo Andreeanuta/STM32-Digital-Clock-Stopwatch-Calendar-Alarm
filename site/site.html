@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ceas digital cu cronometru, calendar și alarmă — STM32F103CBTx + MAX7219</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0a0e0d;
+  --panel:#0f1614;
+  --panel-2:#131d1a;
+  --line:#1e2c28;
+  --fg:#e7f0ec;
+  --muted:#8ba39a;
+  --dim:#5f776e;
+  --seg:#39ff8b;          /* verde afișaj 7-segmente */
+  --seg-dim:#123e28;
+  --pcb:#0bb37a;          /* verde PCB */
+  --amber:#ffb454;
+  --wire:#2a3d37;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --disp:'Space Grotesk',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;font-family:var(--disp);background:var(--bg);color:var(--fg);
+  line-height:1.7;-webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(circle at 50% -10%,rgba(11,179,122,.10),transparent 55%),
+    linear-gradient(var(--bg),var(--bg));
+}
+a{color:var(--seg);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ---------- PCB trace texture divider ---------- */
+.traces{
+  height:2px;width:100%;
+  background:
+    repeating-linear-gradient(90deg,transparent 0 26px,var(--line) 26px 28px);
+  opacity:.6;margin:0;
+}
+
+/* ---------- Header / hero ---------- */
+header.hero{
+  position:relative;overflow:hidden;
+  padding:clamp(48px,9vw,120px) 20px clamp(40px,6vw,80px);
+  border-bottom:1px solid var(--line);
+  background:
+    radial-gradient(circle at 85% 10%,rgba(57,255,139,.06),transparent 40%),
+    linear-gradient(180deg,var(--panel) 0%,var(--bg) 100%);
+}
+.hero-inner{max-width:1080px;margin:0 auto;position:relative;z-index:2}
+.eyebrow{
+  font-family:var(--mono);font-size:.78rem;letter-spacing:.28em;
+  text-transform:uppercase;color:var(--pcb);margin:0 0 18px;
+  display:flex;align-items:center;gap:12px;
+}
+.eyebrow::before{content:"";width:34px;height:1px;background:var(--pcb)}
+.led{width:9px;height:9px;border-radius:50%;background:var(--seg);
+  box-shadow:0 0 10px var(--seg);display:inline-block;
+  animation:blink 2s steps(1) infinite}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:.25}}
+h1.title{
+  font-size:clamp(2rem,5.4vw,3.9rem);line-height:1.05;font-weight:700;
+  letter-spacing:-.02em;margin:0 0 22px;max-width:16ch;
+}
+h1.title em{font-style:normal;color:var(--seg)}
+
+/* 7-segment style live clock */
+.clock{
+  font-family:var(--mono);font-weight:700;
+  font-size:clamp(1.9rem,7vw,4.4rem);letter-spacing:.06em;
+  color:var(--seg);text-shadow:0 0 18px rgba(57,255,139,.35);
+  background:linear-gradient(180deg,#08130d,#0b1a12);
+  border:1px solid var(--seg-dim);border-radius:12px;
+  padding:14px 22px;display:inline-block;margin:6px 0 26px;
+  position:relative;
+}
+.clock::before{content:"88.88.88";position:absolute;inset:14px 22px;
+  color:var(--seg);opacity:.06;pointer-events:none}
+.meta{display:flex;flex-wrap:wrap;gap:10px;font-family:var(--mono);
+  font-size:.82rem}
+.chip{
+  border:1px solid var(--line);background:var(--panel-2);
+  color:var(--muted);padding:6px 12px;border-radius:999px;
+}
+.chip b{color:var(--seg);font-weight:600}
+.authors{margin-top:26px;font-family:var(--mono);color:var(--dim);
+  font-size:.86rem;letter-spacing:.02em}
+.authors b{color:var(--fg);font-weight:600}
+
+/* ---------- Sticky nav ---------- */
+nav.sticky{
+  position:sticky;top:0;z-index:40;
+  background:rgba(10,14,13,.82);backdrop-filter:blur(12px);
+  border-bottom:1px solid var(--line);
+}
+.nav-scroll{
+  max-width:1080px;margin:0 auto;display:flex;gap:4px;overflow-x:auto;
+  padding:10px 12px;scrollbar-width:none;
+}
+.nav-scroll::-webkit-scrollbar{display:none}
+.nav-scroll a{
+  font-family:var(--mono);font-size:.78rem;color:var(--muted);
+  white-space:nowrap;padding:7px 13px;border-radius:8px;
+  border:1px solid transparent;transition:.18s;letter-spacing:.02em;
+}
+.nav-scroll a:hover{color:var(--fg);background:var(--panel-2);text-decoration:none}
+.nav-scroll a.active{color:var(--seg);border-color:var(--seg-dim);
+  background:var(--panel-2)}
+
+/* ---------- Sections ---------- */
+main{max-width:1080px;margin:0 auto;padding:0 20px 90px}
+section{padding:clamp(44px,6vw,72px) 0;border-bottom:1px solid var(--line)}
+section:last-child{border-bottom:none}
+.sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:26px}
+.sec-num{font-family:var(--mono);font-size:.82rem;color:var(--pcb);
+  letter-spacing:.1em;padding-top:6px}
+h2{font-size:clamp(1.4rem,3.4vw,2.1rem);font-weight:600;margin:0;
+  letter-spacing:-.01em}
+h3{font-size:1.05rem;font-weight:600;margin:0 0 10px;color:var(--fg)}
+p{color:var(--muted);margin:0 0 16px}
+p strong,li strong{color:var(--fg);font-weight:600}
+em{color:var(--amber);font-style:normal}
+ul{margin:0 0 8px;padding-left:22px}
+li{color:var(--muted);margin-bottom:7px}
+li::marker{color:var(--pcb)}
+code{font-family:var(--mono);font-size:.86em;background:var(--panel-2);
+  border:1px solid var(--line);color:var(--seg);padding:1px 7px;
+  border-radius:6px}
+
+.pill{display:inline-block;font-family:var(--mono);font-size:.82em;
+  padding:1px 9px;border-radius:6px;background:var(--seg-dim);
+  color:var(--seg);border:1px solid rgba(57,255,139,.25)}
+
+/* card grid */
+.grid{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:20px 22px;position:relative;transition:.2s}
+.card:hover{border-color:var(--seg-dim);transform:translateY(-2px)}
+.card ul{padding-left:20px}
+.card h3{display:flex;align-items:center;gap:9px}
+.card h3::before{content:"";width:7px;height:7px;background:var(--pcb);
+  border-radius:2px;flex:none}
+
+.note{background:var(--panel-2);border-left:3px solid var(--seg);
+  border-radius:0 10px 10px 0;padding:14px 18px;margin-top:14px;
+  color:var(--muted);font-size:.95rem}
+
+/* pin table styling for I/O */
+.pinlist code{background:transparent;border:none;padding:0;color:var(--seg)}
+
+/* images */
+figure{margin:20px 0;border:1px solid var(--line);border-radius:14px;
+  overflow:hidden;background:var(--panel)}
+figure img{display:block;width:100%;height:auto}
+figcaption{font-family:var(--mono);font-size:.76rem;color:var(--dim);
+  padding:10px 16px;border-top:1px solid var(--line);letter-spacing:.03em}
+
+/* stats */
+.stats{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+  margin:8px 0 6px}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:20px}
+.stat .num{font-family:var(--mono);font-size:1.9rem;font-weight:700;
+  color:var(--seg);line-height:1}
+.stat .bar{height:6px;border-radius:99px;background:var(--seg-dim);
+  margin:12px 0 8px;overflow:hidden}
+.stat .bar span{display:block;height:100%;background:var(--seg);
+  border-radius:99px}
+.stat .lbl{font-family:var(--mono);font-size:.78rem;color:var(--muted)}
+
+.improve{background:var(--panel-2);border:1px dashed var(--wire);
+  border-radius:14px;padding:18px 22px;margin-top:18px}
+.improve h3{color:var(--amber)}
+
+.biblio a{display:block;font-family:var(--mono);font-size:.86rem;
+  padding:11px 14px;border:1px solid var(--line);border-radius:10px;
+  margin-bottom:9px;color:var(--muted);transition:.18s;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.biblio a:hover{border-color:var(--seg-dim);color:var(--seg);
+  text-decoration:none}
+.biblio a::before{content:"↗ ";color:var(--pcb)}
+
+footer{max-width:1080px;margin:0 auto;padding:30px 20px 50px;
+  font-family:var(--mono);font-size:.78rem;color:var(--dim);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+
+@media (prefers-reduced-motion:reduce){
+  *{animation:none!important;scroll-behavior:auto}
+}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-inner">
+    <p class="eyebrow"><span class="led"></span> Proiect 2 · Sisteme cu microcontroler</p>
+    <h1 class="title">Ceas digital cu <em>cronometru</em>, calendar și alarmă</h1>
+    <div class="clock" id="clock">--.--.--</div>
+    <div class="meta">
+      <span class="chip">MCU <b>STM32F103CBTx</b></span>
+      <span class="chip">Driver <b>MAX7219</b></span>
+      <span class="chip">Afișaj <b>8× 7-seg</b></span>
+      <span class="chip">Toolchain <b>CubeMX + HAL</b></span>
+    </div>
+    <p class="authors">Realizat de <b>Nuță Andreea</b></p>
+  </div>
+</header>
+
+<nav class="sticky">
+  <div class="nav-scroll" id="nav">
+    <a href="#implementare">Implementare</a>
+    <a href="#functionare">Funcționare</a>
+    <a href="#logica">Logică</a>
+    <a href="#io">I/O</a>
+    <a href="#adi">Componente</a>
+    <a href="#hardware">Hardware</a>
+    <a href="#software">Software</a>
+    <a href="#raport">Raport compilator</a>
+    <a href="#concluzie">Concluzie</a>
+    <a href="#bibliografie">Bibliografie</a>
+  </div>
+</nav>
+
+<main>
+
+<section id="implementare">
+  <div class="sec-head"><span class="sec-num">01</span><h2>Modul de implementare</h2></div>
+  <p>
+    Sistemul este realizat pe microcontrolerul <strong>STM32F103CBTx</strong>. Interfața cu utilizatorul este un afișaj cu
+    <strong>8 cifre, 7 segmente</strong>, controlat de driverul <span class="pill">MAX7219</span>. Afișajul arată ora
+    (<em>hh.mm.ss</em>), data (<em>dd.mm.yy</em>), timpul cronometrului și ora alarmei; punctul „.” se obține aprinzând
+    <em>punctul zecimal (DP)</em> la cifrele corespunzătoare.
+  </p>
+</section>
+
+<section id="functionare">
+  <div class="sec-head"><span class="sec-num">02</span><h2>Mod de funcționare</h2></div>
+  <ul>
+    <li>Ora se afișează pe un display cu cifre, controlat de un afișaj cu 7 segmente <strong>MAX7219</strong>.</li>
+    <li>Cu ajutorul butoanelor fizice se poate schimba starea, se poate activa cronometrul și seta alarma.</li>
+    <li>Comunicația cu PC-ul se face prin conexiune <strong>UART</strong> (serială).</li>
+    <li>Pentru I/O au fost folosite butoane, un display cu 8 cifre legat prin <strong>SPI</strong> la microcontroller și o conexiune <strong>UART</strong> pentru trimiterea de date.</li>
+    <li>Componente folosite: <strong>buzzer</strong>, <strong>display MAX7219</strong>, <strong>butoane</strong>.</li>
+  </ul>
+</section>
+
+<section id="logica">
+  <div class="sec-head"><span class="sec-num">03</span><h2>Descriere logică</h2></div>
+  <ul>
+    <li>La pornirea cronometrului, microcontrollerul numără secundele și le afișează pe ecran.</li>
+    <li>La ora programată, alarma activează buzzer-ul când ora alarmei este egală cu ora curentă.</li>
+    <li>Calendarul ține evidența zilelor, lunilor și anilor; se poate modifica prin butoane.</li>
+    <li>Comunicația <strong>UART</strong> permite trimiterea datelor către PC pentru monitorizare.</li>
+  </ul>
+</section>
+
+<section id="io">
+  <div class="sec-head"><span class="sec-num">04</span><h2>Componente de I/O</h2></div>
+  <div class="grid">
+    <div class="card pinlist">
+      <h3>Afișaj 7-seg × 8 digiți — MAX7219</h3>
+      <p style="margin-bottom:10px"><strong>Protocol:</strong> SPI</p>
+      <ul>
+        <li><code>PA7</code> — SPI1_MOSI → DIN (date către MAX7219)</li>
+        <li><code>PA5</code> — SPI1_SCK → CLK (ceas)</li>
+        <li><code>PA4</code> — GPIO Output → CS/LOAD (chip select, activ LOW)</li>
+        <li><code>PA6</code> — SPI1_MISO: <em>nefolosit</em></li>
+      </ul>
+    </div>
+    <div class="card pinlist">
+      <h3>Butoane — input, pull-up, active-LOW</h3>
+      <ul>
+        <li><code>PB15</code> — B0: schimbă modul (Ceas → Calendar → Cronometru → Alarmă)</li>
+        <li><code>PB14</code> — B1: Cronometru Start/Stop/Reset; Alarmă intră/iese din setare</li>
+        <li><code>PB13</code> — B2: setare alarmă → <strong>minut++</strong></li>
+        <li><code>PB12</code> — B3: setare alarmă → <strong>minut--</strong></li>
+        <li>Fiecare buton între PBx și GND; <code>GPIO_PULLUP</code> activ</li>
+      </ul>
+    </div>
+    <div class="card pinlist">
+      <h3>Buzzer pentru alarmă</h3>
+      <ul>
+        <li><code>PA3</code> — GPIO Output → buzzer (activ HIGH), celălalt pin → GND</li>
+      </ul>
+    </div>
+    <div class="card pinlist">
+      <h3>Timer intern &amp; UART</h3>
+      <ul>
+        <li><strong>TIM2:</strong> PSC=7199, ARR=100 ⇒ întrerupere ~10 ms; 100 tick ≈ 1 s</li>
+        <li><strong>UART</strong> (<code>printf</code>): <code>PA9</code> TX → RX adaptor USB–TTL; <code>PA10</code> RX ← TX; 9600 8N1; GND comun</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="adi">
+  <div class="sec-head"><span class="sec-num">05</span><h2>Componente adiționale</h2></div>
+  <ul>
+    <li>Modul afișaj 7-segmente + MAX7219
+      <ul>
+        <li>Rezistențe externe <strong>NU</strong> sunt necesare (MAX7219 are curent constant integrat)</li>
+        <li>Luminozitate programabilă (registrul <code>INTENSITY</code> 0…15)</li>
+      </ul>
+    </li>
+    <li>4 butoane tactile 6×6 mm (pentru B0…B3)
+      <ul>
+        <li>Montaj: pin ⇄ buton ⇄ GND; pull-up intern activat în microcontroller</li>
+        <li>Debounce în software (200 ms)</li>
+      </ul>
+    </li>
+    <li>Buzzer piezo / activ 3.3 V</li>
+    <li>Fire rigide pentru breadboard și plăcuță prototip</li>
+    <li><strong>Sursa de achiziție:</strong> Optimus Digital</li>
+  </ul>
+</section>
+
+<section id="hardware">
+  <div class="sec-head"><span class="sec-num">06</span><h2>Descrierea hardware</h2></div>
+  <p>În pozele următoare se regăsesc placa de test parțial realizată și placa de test finalizată, împreună cu ansamblul complet (afișaj, buzzer și breadboard).</p>
+  <figure>
+    <img src="IMG-20250829-WA0005.JPG" alt="Placa de test — de la asamblare la ansamblul finalizat" loading="lazy">
+    <figcaption>Asamblare sub microscop · placă parțială · placă finalizată cu afișaj și buzzer</figcaption>
+  </figure>
+  <h3 style="margin-top:28px">BOM — Bill of Materials</h3>
+  <figure>
+    <img src="IMG-20250829-WA0003.JPG" alt="Lista de componente (BOM)" loading="lazy">
+    <figcaption>Listă completă componente — cantitate, referință, valoare, capsulă, furnizor</figcaption>
+  </figure>
+</section>
+
+<section id="software">
+  <div class="sec-head"><span class="sec-num">07</span><h2>Descrierea software</h2></div>
+  <figure>
+    <img src="IMG-20250829-WA0004.JPG" alt="Diagrama de flux a programului" loading="lazy">
+    <figcaption>Flux principal — mașină de stări: Clock / Calendar / Stopwatch / Alarmă</figcaption>
+  </figure>
+  <p>
+    Software-ul rulează pe microcontrollerul <strong>STM32F103CBTx</strong> și a fost realizat cu <strong>STM32CubeMX + HAL</strong>.
+    Codul generat automat este păstrat, iar modificările proprii sunt inserate între blocurile
+    <code>/* USER CODE BEGIN … */</code> și <code>/* USER CODE END … */</code>, astfel încât rămân la orice regenerare.
+    Sistemul funcționează ca o mașină de stări cu patru moduri: <em>Clock</em>, <em>Calendar</em>, <em>Cronometru</em> și <em>Alarmă</em>.
+  </p>
+  <p>
+    La inițializare, ceasul sistem este setat la <strong>72 MHz</strong> (HSE 8 MHz + PLL×9). <strong>TIM2</strong> este configurat
+    cu prescaler <code>7199</code> și perioadă <code>100</code> pentru a genera o întrerupere la ~10 ms. În rutina
+    <code>HAL_TIM_PeriodElapsedCallback()</code> se numără 100 ticks pentru a obține 1 s, se incrementează variabilele de
+    timp (ore, minute, secunde), se rulează cronometrul dacă este activ și se verifică alarma; în primele 4 secunde ale
+    minutului programat, pinul <strong>PA3</strong> este pus în nivel logic „1” și se comandă buzzerul. Variabilele partajate
+    cu ISR sunt declarate <code>volatile</code>.
+  </p>
+  <p>
+    Interfața cu utilizatorul este realizată cu un afișaj 7-segmente (8 digiți) controlat de <strong>MAX7219</strong>,
+    conectat prin <strong>SPI1</strong>: <strong>PA7</strong>→DIN (MOSI), <strong>PA5</strong>→CLK (SCK), <strong>PA4</strong>→CS/LOAD;
+    <strong>PA6</strong> (MISO) nu este utilizat. Afișajul este inițializat (Decode Mode pe toți digiții, Scan Limit 8,
+    Intensitate, ieșire din Shutdown), iar scrierea se face prin trimiterea perechilor <code>[adresă, valoare]</code> cu
+    <code>MAX7219_Send()</code>. Pentru mesajele din terminal, <strong>UART1</strong> rulează la 9600 bps, <code>printf()</code>
+    fiind redirecționat prin <code>_write()</code>.
+  </p>
+  <p>
+    Controlul se face cu patru butoane pe PB15…PB12 (B0–B3), configurate <em>input</em> cu <em>pull-up</em> (active-LOW).
+    În bucla principală se face <em>polling</em> cu un mic <em>debounce</em> software și cu <em>flag-uri</em> pentru a genera o
+    singură acțiune la fiecare apăsare. B0 comută starea aplicației; B1 pornește/oprește/resetează cronometrul sau
+    intră/iese din modul de setare a alarmei; B2 și B3 modifică minutul alarmei. Astfel, proiectul integrează perifericele
+    <strong>GPIO</strong>, <strong>SPI</strong>, <strong>TIM</strong> și <strong>UART</strong> pentru a realiza un ceas digital complet cu
+    cronometru, calendar și alarmă, cu afișare stabilă și interacțiune în timp real.
+  </p>
+</section>
+
+<section id="raport">
+  <div class="sec-head"><span class="sec-num">08</span><h2>Raportul compilatorului</h2></div>
+  <figure>
+    <img src="IMG-20250829-WA0001.JPG" alt="Device ID și memorie" loading="lazy">
+    <figcaption>Device ID · RAM 20 KiB · Flash 128 KiB</figcaption>
+  </figure>
+  <figure>
+    <img src="IMG-20250829-WA0002.JPG" alt="Raport dimensiune binar (text/data/bss)" loading="lazy">
+    <figcaption>Dimensiune binar — text / data / bss</figcaption>
+  </figure>
+  <p class="note">
+    Aceste valori sunt în limitele normale pentru microcontrolere STM32 (ex. STM32F103C8T6), ceea ce înseamnă că proiectul
+    este compatibil și poate fi încărcat și executat corect pe dispozitiv.
+  </p>
+</section>
+
+<section id="concluzie">
+  <div class="sec-head"><span class="sec-num">09</span><h2>Concluzie</h2></div>
+  <p>
+    Proiectul de <strong>ceas digital cu cronometru, calendar și alarmă</strong> pe <strong>STM32F103CBTx</strong> a fost
+    implementat și testat cu succes, folosind <strong>STM32CubeMX + HAL</strong>. Interfața este realizată cu un afișaj
+    <strong>MAX7219</strong> (8×7-segmente) comandat prin <strong>SPI</strong>, patru butoane (input cu <em>pull-up</em>,
+    active-LOW) și un buzzer pe <strong>PA3</strong>. Timpul este menținut în <strong>TIM2</strong> (tick ~10 ms) cu actualizarea
+    secundelor/minutelor/orelor și logica de alarmă în ISR; comunicarea de debug se face prin <strong>USART1</strong> (9600 bps).
+  </p>
+  <p>
+    Arhitectura software este o mașină de stări (Clock/Calendar/Stopwatch/Alarm), cu <em>debounce</em> software și afișare
+    actualizată în funcție de starea curentă. Codul respectă structura „USER CODE” pentru a rămâne robust la regenerarea CubeMX.
+  </p>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="num">27.8 <span style="font-size:1rem;color:var(--muted)">KB</span></div>
+      <div class="bar"><span style="width:21.7%"></span></div>
+      <div class="lbl">Flash folosit — din 128 KB (~22%)</div>
+    </div>
+    <div class="stat">
+      <div class="num">7.2 <span style="font-size:1rem;color:var(--muted)">KB</span></div>
+      <div class="bar"><span style="width:36%"></span></div>
+      <div class="lbl">RAM static — din 20 KB (~36%)</div>
+    </div>
+  </div>
+  <p style="margin-top:14px">⇒ Utilizare <strong>mult sub limite</strong>, rămân suficiente rezerve pentru extinderi.</p>
+
+  <div class="improve">
+    <h3>Posibile îmbunătățiri</h3>
+    <p style="margin:0">
+      Folosirea <strong>RTC</strong> + cristal LSE 32.768 kHz pentru acuratețe pe termen lung, trecerea butoanelor pe
+      întreruperi <strong>EXTI</strong>, moduri <strong>low-power</strong> și memorarea setărilor în EEPROM emulat / backup registers.
+    </p>
+  </div>
+</section>
+
+<section id="bibliografie">
+  <div class="sec-head"><span class="sec-num">10</span><h2>Bibliografie</h2></div>
+  <div class="biblio">
+    <a href="https://electronoobs.com/eng_arduino_tut54.php" target="_blank" rel="noopener">electronoobs.com/eng_arduino_tut54.php</a>
+    <a href="https://www.analog.com/media/en/technical-documentation/data-sheets/max7219-max7221.pdf" target="_blank" rel="noopener">MAX7219 / MAX7221 — Datasheet (Analog Devices)</a>
+    <a href="https://docs.google.com/document/d/1I0F3EkaRIMb5AFkzEhPFFVDttUM_58OWutDxImRQfCs/edit?tab=t.0" target="_blank" rel="noopener">Documentație proiect — Google Docs</a>
+    <a href="http://ham.elcom.pub.ro/proiect2/index.html" target="_blank" rel="noopener">ham.elcom.pub.ro/proiect2/index.html</a>
+  </div>
+</section>
+
+</main>
+
+<div class="traces"></div>
+<footer>
+  <span>STM32F103CBTx · MAX7219 · CubeMX + HAL</span>
+  <span>Proiect 2 — Sisteme cu microcontroler</span>
+</footer>
+
+<script>
+// Live clock in the hero (hh.mm.ss, 7-seg style)
+(function(){
+  var el=document.getElementById('clock');
+  function pad(n){return n<10?'0'+n:''+n}
+  function tick(){
+    var d=new Date();
+    el.textContent=pad(d.getHours())+'.'+pad(d.getMinutes())+'.'+pad(d.getSeconds());
+  }
+  tick();setInterval(tick,1000);
+})();
+
+// Scroll-spy nav
+(function(){
+  var links=[].slice.call(document.querySelectorAll('#nav a'));
+  var map={};links.forEach(function(a){map[a.getAttribute('href').slice(1)]=a});
+  var obs=new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if(e.isIntersecting){
+        links.forEach(function(a){a.classList.remove('active')});
+        var a=map[e.target.id];
+        if(a){a.classList.add('active');
+          a.scrollIntoView({inline:'nearest',block:'nearest'});}
+      }
+    });
+  },{rootMargin:'-45% 0px -50% 0px'});
+  document.querySelectorAll('section[id]').forEach(function(s){obs.observe(s)});
+})();
+</script>
+
+</body>
+</html>
